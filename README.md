@@ -121,3 +121,25 @@ kubectl logs -n jobqueue -l app=worker
 
 # Scale workers
 kubectl scale deployment worker -n jobqueue --replicas=5
+
+
+
+
+
+
+
+
+Phase3
+To deploy
+
+docker build -t mini-job-queue:local .
+kubectl apply -f k8s/autoscaler.yaml
+
+# Watch it work
+kubectl -n jobqueue logs -f deploy/autoscaler
+
+# Burst jobs and watch workers scale
+for i in $(seq 1 50); do
+  curl -s -X POST localhost:30080/jobs -d "{\"task\":\"work-$i\"}"
+done
+kubectl -n jobqueue get deploy worker -w

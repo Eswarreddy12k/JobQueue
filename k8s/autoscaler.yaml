@@ -1,0 +1,83 @@
+# ServiceAccount — gives the autoscaler pod an identity in K8s
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: autoscaler
+  namespace: jobqueue
+
+---
+# Role — what the autoscaler is allowed to do
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: autoscaler-role
+  namespace: jobqueue
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    verbs: ["get", "update"]
+
+---
+# RoleBinding — connects the ServiceAccount to the Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: autoscaler-binding
+  namespace: jobqueue
+subjects:
+  - kind: ServiceAccount
+    name: autoscaler
+    namespace: jobqueue
+roleRef:
+  kind: Role
+  name: autoscaler-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Deployment — runs the autoscaler as a single pod
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autoscaler
+  namespace: jobqueue
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: autoscaler
+  template:
+    metadata:
+      labels:
+        app: autoscaler
+    spec:
+      serviceAccountName: autoscaler
+      containers:
+        - name: autoscaler
+          image: mini-job-queue:local
+          imagePullPolicy: Never
+          command: ["/autoscaler"]
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secret
+          env:
+            - name: AUTOSCALER_NAMESPACE
+              value: "jobqueue"
+            - name: AUTOSCALER_DEPLOYMENT
+              value: "worker"
+            - name: AUTOSCALER_MIN_REPLICAS
+              value: "1"
+            - name: AUTOSCALER_MAX_REPLICAS
+              value: "10"
+            - name: AUTOSCALER_JOBS_PER_WORKER
+              value: "5"
+            - name: AUTOSCALER_POLL_INTERVAL
+              value: "15s"
+            - name: AUTOSCALER_SCALEUP_COOLDOWN
+              value: "30s"
+            - name: AUTOSCALER_SCALEDOWN_COOLDOWN
+              value: "120s"
