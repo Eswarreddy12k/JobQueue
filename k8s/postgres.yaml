@@ -1,0 +1,76 @@
+# ConfigMap holding the migration SQL files.
+# Mounted into the Postgres container at /docker-entrypoint-initdb.d/
+# so they auto-run on first boot (same trick as docker-compose).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: jobqueue
+data:
+  001_create_jobs.sql: |
+    CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+    CREATE TABLE IF NOT EXISTS jobs (
+        id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        payload     JSONB        NOT NULL,
+        status      TEXT         NOT NULL DEFAULT 'pending',
+        retry_count INT          NOT NULL DEFAULT 0,
+        error       TEXT,
+        created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX idx_jobs_status ON jobs(status);
+
+  002_add_running_index.sql: |
+    CREATE INDEX IF NOT EXISTS idx_jobs_running ON jobs(updated_at) WHERE status = 'running';
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: jobqueue
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: "postgres"
+            - name: POSTGRES_PASSWORD
+              value: "postgres"
+            - name: POSTGRES_DB
+              value: "jobqueue"
+          volumeMounts:
+            - name: init-sql
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+      volumes:
+        - name: init-sql
+          configMap:
+            name: postgres-init
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: jobqueue
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432

@@ -1,0 +1,7 @@
+.git
+.claude
+api
+worker
+*.md
+docker-compose.yml
+k8s/

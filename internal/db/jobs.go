@@ -76,6 +76,15 @@ func ClaimJob(ctx context.Context, pool *pgxpool.Pool) (*models.Job, error) {
 	return &j, nil
 }
 
+// MarkRunning sets a job's status to running. Used after dequeuing from Redis.
+func MarkRunning(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) error {
+	_, err := pool.Exec(ctx, `
+		UPDATE jobs SET status = 'running', updated_at = NOW()
+		WHERE id = $1 AND status = 'pending'
+	`, id)
+	return err
+}
+
 const maxRetries = 3
 
 // MarkDone marks a job as done.
@@ -86,16 +95,48 @@ func MarkDone(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) error {
 	return err
 }
 
-// MarkFailed either retries a job (if under the retry limit) or marks it failed.
-func MarkFailed(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID, jobErr string) error {
-	_, err := pool.Exec(ctx, `
+// MarkFailed either retries a job (if under the retry limit) or marks it dead.
+// Returns dead=true when retries are exhausted (job should go to DLQ).
+func MarkFailed(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID, jobErr string) (dead bool, err error) {
+	var newStatus string
+	row := pool.QueryRow(ctx, `
 		UPDATE jobs
 		SET
 			retry_count = retry_count + 1,
-			status      = CASE WHEN retry_count + 1 < $2 THEN 'pending' ELSE 'failed' END,
+			status      = CASE WHEN retry_count + 1 < $2 THEN 'pending' ELSE 'dead' END,
 			error       = $3,
 			updated_at  = NOW()
 		WHERE id = $1
+		RETURNING status
 	`, id, maxRetries, jobErr)
-	return err
+
+	if err := row.Scan(&newStatus); err != nil {
+		return false, fmt.Errorf("mark failed: %w", err)
+	}
+	return newStatus == string(models.StatusDead), nil
+}
+
+// GetStaleRunningJobs finds jobs stuck in "running" for longer than staleDuration.
+// These are likely from crashed workers and need to be re-enqueued.
+func GetStaleRunningJobs(ctx context.Context, pool *pgxpool.Pool, staleSeconds int) ([]uuid.UUID, error) {
+	rows, err := pool.Query(ctx, `
+		UPDATE jobs
+		SET status = 'pending', updated_at = NOW()
+		WHERE status = 'running' AND updated_at < NOW() - make_interval(secs => $1)
+		RETURNING id
+	`, staleSeconds)
+	if err != nil {
+		return nil, fmt.Errorf("get stale jobs: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }

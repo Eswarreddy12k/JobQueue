@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"mini-job-queue/internal/db"
+	redisconn "mini-job-queue/internal/redis"
 	"mini-job-queue/internal/worker"
 )
 
@@ -23,8 +24,18 @@ func main() {
 	}
 	defer pool.Close()
 
+	redisAddr := os.Getenv("REDIS_ADDR")
+	if redisAddr == "" {
+		redisAddr = "localhost:6379"
+	}
+	rdb, err := redisconn.Connect(context.Background(), redisAddr)
+	if err != nil {
+		log.Fatalf("redis connect: %v", err)
+	}
+	defer rdb.Close()
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	worker.Run(ctx, pool)
+	worker.Run(ctx, pool, rdb)
 }

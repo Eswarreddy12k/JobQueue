@@ -2,16 +2,21 @@ package api
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 
 	"mini-job-queue/internal/db"
+	"mini-job-queue/internal/models"
+	"mini-job-queue/internal/queue"
 )
 
 type Handler struct {
 	Pool *pgxpool.Pool
+	RDB  *redis.Client
 }
 
 // POST /jobs  — submit a new job
@@ -27,6 +32,12 @@ func (h *Handler) SubmitJob(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "failed to create job", http.StatusInternalServerError)
 		return
+	}
+
+	// Enqueue to Redis for fast dispatch. If this fails the recovery sweep
+	// will pick it up later — the job is safe in Postgres.
+	if err := queue.Enqueue(r.Context(), h.RDB, job.ID); err != nil {
+		log.Printf("warning: redis enqueue failed for job %s: %v", job.ID, err)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -51,4 +62,25 @@ func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(job)
+}
+
+// GET /jobs/dead  — list jobs in the dead-letter queue
+func (h *Handler) GetDeadJobs(w http.ResponseWriter, r *http.Request) {
+	ids, err := queue.ListDLQ(r.Context(), h.RDB, 100)
+	if err != nil {
+		http.Error(w, "failed to list dead jobs", http.StatusInternalServerError)
+		return
+	}
+
+	jobs := make([]*models.Job, 0, len(ids))
+	for _, id := range ids {
+		job, err := db.GetJob(r.Context(), h.Pool, id)
+		if err != nil {
+			continue
+		}
+		jobs = append(jobs, job)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(jobs)
 }

@@ -67,3 +67,57 @@ curl http://localhost:8080/jobs/<id>
 | Retry logic | `db.MarkFailed()` — resets to pending if under retry limit |
 | HTTP handlers | `internal/api/handler.go` |
 | Worker poll loop | `internal/worker/worker.go` |
+
+Phase 1 test
+
+To test it
+
+docker compose up -d                    # starts Postgres + Redis
+go run ./cmd/api                        # terminal 1
+go run ./cmd/worker                     # terminal 2
+
+# Normal job — instant processing
+curl -X POST localhost:8080/jobs -d '{"task":"send_email"}'
+
+# Poison job — retries 3x then goes to DLQ
+curl -X POST localhost:8080/jobs -d '{"task":"poison"}'
+
+# Check the dead-letter queue
+curl localhost:8080/jobs/dead
+
+
+
+
+
+
+
+
+
+Phase 2 test
+To deploy
+Before running these, make sure you:
+
+Enable Kubernetes in Docker Desktop (Settings → Kubernetes → Enable)
+brew install kubectl
+Then:
+
+
+# Build the Docker image
+docker build -t mini-job-queue:local .
+
+# Deploy everything
+kubectl apply -f k8s/
+
+# Watch pods come up
+kubectl get pods -n jobqueue -w
+
+# Test it
+curl -X POST http://localhost:30080/jobs \
+  -H "Content-Type: application/json" \
+  -d '{"task":"hello-k8s"}'
+
+# Check worker logs
+kubectl logs -n jobqueue -l app=worker
+
+# Scale workers
+kubectl scale deployment worker -n jobqueue --replicas=5

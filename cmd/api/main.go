@@ -8,6 +8,7 @@ import (
 
 	"mini-job-queue/internal/api"
 	"mini-job-queue/internal/db"
+	redisconn "mini-job-queue/internal/redis"
 )
 
 func main() {
@@ -22,10 +23,21 @@ func main() {
 	}
 	defer pool.Close()
 
-	h := &api.Handler{Pool: pool}
+	redisAddr := os.Getenv("REDIS_ADDR")
+	if redisAddr == "" {
+		redisAddr = "localhost:6379"
+	}
+	rdb, err := redisconn.Connect(context.Background(), redisAddr)
+	if err != nil {
+		log.Fatalf("redis connect: %v", err)
+	}
+	defer rdb.Close()
+
+	h := &api.Handler{Pool: pool, RDB: rdb}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /jobs", h.SubmitJob)
+	mux.HandleFunc("GET /jobs/dead", h.GetDeadJobs)
 	mux.HandleFunc("GET /jobs/{id}", h.GetJob)
 
 	addr := ":8080"
