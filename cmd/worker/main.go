@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"mini-job-queue/internal/db"
+	"mini-job-queue/internal/metrics"
 	redisconn "mini-job-queue/internal/redis"
 	"mini-job-queue/internal/worker"
 )
@@ -33,6 +34,8 @@ func main() {
 		log.Fatalf("redis connect: %v", err)
 	}
 	defer rdb.Close()
+
+	go metrics.StartMetricsServer(":9090")
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

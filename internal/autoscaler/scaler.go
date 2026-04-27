@@ -11,6 +11,8 @@ import (
 	"github.com/redis/go-redis/v9"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+
+	"mini-job-queue/internal/metrics"
 )
 
 // Config holds all tunable parameters for the autoscaler.
@@ -72,6 +74,10 @@ func (s *Scaler) tick(ctx context.Context) {
 		return
 	}
 
+	// Publish queue metrics to Prometheus
+	metrics.QueueDepth.Set(float64(pending))
+	metrics.RunningJobs.Set(float64(running))
+
 	desired := s.desiredReplicas(pending, running)
 
 	// Get current replica count from K8s
@@ -83,6 +89,10 @@ func (s *Scaler) tick(ctx context.Context) {
 		return
 	}
 	current := *deploy.Spec.Replicas
+
+	// Publish replica metrics to Prometheus
+	metrics.AutoscalerCurrentReplicas.Set(float64(current))
+	metrics.AutoscalerDesiredReplicas.Set(float64(desired))
 
 	if desired == current {
 		log.Printf("autoscaler: pending=%d running=%d replicas=%d (no change)", pending, running, current)

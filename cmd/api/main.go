@@ -6,8 +6,11 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	"mini-job-queue/internal/api"
 	"mini-job-queue/internal/db"
+	"mini-job-queue/internal/metrics"
 	redisconn "mini-job-queue/internal/redis"
 )
 
@@ -39,10 +42,11 @@ func main() {
 	mux.HandleFunc("POST /jobs", h.SubmitJob)
 	mux.HandleFunc("GET /jobs/dead", h.GetDeadJobs)
 	mux.HandleFunc("GET /jobs/{id}", h.GetJob)
+	mux.Handle("GET /metrics", promhttp.Handler())
 
 	addr := ":8080"
 	log.Printf("API server listening on %s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	if err := http.ListenAndServe(addr, metrics.HTTPMetrics(mux)); err != nil {
 		log.Fatal(err)
 	}
 }

@@ -12,12 +12,18 @@ spec:
     metadata:
       labels:
         app: worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
         - name: worker
           image: mini-job-queue:local
           imagePullPolicy: Never
           command: ["/worker"]
+          ports:
+            - containerPort: 9090
           envFrom:
             - configMapRef:
                 name: app-config

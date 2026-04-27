@@ -10,6 +10,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"mini-job-queue/internal/db"
+	"mini-job-queue/internal/metrics"
 	"mini-job-queue/internal/models"
 	"mini-job-queue/internal/queue"
 )
@@ -33,6 +34,8 @@ func (h *Handler) SubmitJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to create job", http.StatusInternalServerError)
 		return
 	}
+
+	metrics.JobsSubmittedTotal.Inc()
 
 	// Enqueue to Redis for fast dispatch. If this fails the recovery sweep
 	// will pick it up later — the job is safe in Postgres.

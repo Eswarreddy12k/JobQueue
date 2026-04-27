@@ -1,0 +1,253 @@
+# ConfigMap — Grafana datasource provisioning (auto-connects to Prometheus)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: jobqueue
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+        editable: false
+
+---
+# ConfigMap — tells Grafana where to find dashboard JSON files
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: jobqueue
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: default
+        orgId: 1
+        folder: ""
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards
+          foldersFromFilesStructure: false
+
+---
+# ConfigMap — the actual dashboard JSON
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-json
+  namespace: jobqueue
+data:
+  mini-job-queue.json: |
+    {
+      "annotations": { "list": [] },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "links": [],
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+          "title": "Queue Health",
+          "type": "row"
+        },
+        {
+          "title": "Queue Depth",
+          "type": "stat",
+          "gridPos": { "h": 6, "w": 6, "x": 0, "y": 1 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "jobqueue_queue_depth", "legendFormat": "pending" }
+          ],
+          "fieldConfig": {
+            "defaults": { "thresholds": { "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 10 },
+              { "color": "red", "value": 50 }
+            ]}}
+          }
+        },
+        {
+          "title": "Running Jobs",
+          "type": "stat",
+          "gridPos": { "h": 6, "w": 6, "x": 6, "y": 1 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "jobqueue_running_jobs", "legendFormat": "running" }
+          ]
+        },
+        {
+          "title": "Queue Over Time",
+          "type": "timeseries",
+          "gridPos": { "h": 6, "w": 12, "x": 12, "y": 1 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "jobqueue_queue_depth", "legendFormat": "pending" },
+            { "expr": "jobqueue_running_jobs", "legendFormat": "running" }
+          ]
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 7 },
+          "title": "Workers",
+          "type": "row"
+        },
+        {
+          "title": "Job Throughput (per second)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "sum(rate(jobqueue_jobs_processed_total[1m])) by (status)", "legendFormat": "{{status}}" }
+          ]
+        },
+        {
+          "title": "Processing Latency",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "histogram_quantile(0.50, sum(rate(jobqueue_job_processing_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+            { "expr": "histogram_quantile(0.95, sum(rate(jobqueue_job_processing_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95" },
+            { "expr": "histogram_quantile(0.99, sum(rate(jobqueue_job_processing_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p99" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "s" } }
+        },
+        {
+          "title": "Worker Saturation",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "sum(jobqueue_worker_busy)", "legendFormat": "busy workers" },
+            { "expr": "jobqueue_autoscaler_current_replicas", "legendFormat": "total replicas" }
+          ]
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 },
+          "title": "Autoscaler",
+          "type": "row"
+        },
+        {
+          "title": "Replicas: Current vs Desired",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "jobqueue_autoscaler_current_replicas", "legendFormat": "current" },
+            { "expr": "jobqueue_autoscaler_desired_replicas", "legendFormat": "desired" }
+          ],
+          "fieldConfig": { "defaults": { "decimals": 0 } }
+        },
+        {
+          "title": "Jobs Submitted (total)",
+          "type": "stat",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "jobqueue_jobs_submitted_total", "legendFormat": "submitted" }
+          ]
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 },
+          "title": "API",
+          "type": "row"
+        },
+        {
+          "title": "API Request Rate (per second)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 26 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "sum(rate(jobqueue_http_requests_total[1m])) by (path)", "legendFormat": "{{path}}" }
+          ]
+        },
+        {
+          "title": "API Latency p95",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 26 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "histogram_quantile(0.95, sum(rate(jobqueue_http_request_duration_seconds_bucket[5m])) by (le, path))", "legendFormat": "{{path}}" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "s" } }
+        }
+      ],
+      "schemaVersion": 39,
+      "tags": ["jobqueue"],
+      "templating": { "list": [] },
+      "time": { "from": "now-30m", "to": "now" },
+      "title": "Mini Job Queue",
+      "uid": "mini-job-queue"
+    }
+
+---
+# Deployment — runs Grafana with provisioned datasource + dashboard
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: jobqueue
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:10.4.1
+          ports:
+            - containerPort: 3000
+          env:
+            # Enable anonymous access so you don't need to log in
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "true"
+            - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+              value: "Admin"
+          volumeMounts:
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboard-json
+              mountPath: /var/lib/grafana/dashboards
+      volumes:
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+        - name: dashboard-provider
+          configMap:
+            name: grafana-dashboard-provider
+        - name: dashboard-json
+          configMap:
+            name: grafana-dashboard-json
+
+---
+# Service — exposes Grafana UI on NodePort 30030
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: jobqueue
+spec:
+  type: NodePort
+  selector:
+    app: grafana
+  ports:
+    - port: 3000
+      targetPort: 3000
+      nodePort: 30030

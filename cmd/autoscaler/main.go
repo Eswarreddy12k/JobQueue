@@ -15,6 +15,7 @@ import (
 
 	"mini-job-queue/internal/autoscaler"
 	"mini-job-queue/internal/db"
+	"mini-job-queue/internal/metrics"
 	redisconn "mini-job-queue/internal/redis"
 )
 
@@ -59,6 +60,8 @@ func main() {
 		ScaleUpCooldown:   envOrDefaultDuration("AUTOSCALER_SCALEUP_COOLDOWN", 30*time.Second),
 		ScaleDownCooldown: envOrDefaultDuration("AUTOSCALER_SCALEDOWN_COOLDOWN", 120*time.Second),
 	}
+
+	go metrics.StartMetricsServer(":9090")
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

@@ -11,6 +11,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"mini-job-queue/internal/db"
+	"mini-job-queue/internal/metrics"
 	"mini-job-queue/internal/queue"
 )
 
@@ -72,6 +73,12 @@ func processOne(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client) erro
 		return err
 	}
 
+	// We have a job — mark this worker as busy
+	metrics.WorkerBusy.Set(1)
+	defer metrics.WorkerBusy.Set(0)
+
+	start := time.Now()
+
 	// Mark the job as running in Postgres
 	if err := db.MarkRunning(ctx, pool, jobID); err != nil {
 		return fmt.Errorf("mark running %s: %w", jobID, err)
@@ -93,13 +100,19 @@ func processOne(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client) erro
 		}
 		if dead {
 			log.Printf("job %s moved to dead-letter queue", job.ID)
+			metrics.JobsProcessedTotal.WithLabelValues("dead").Inc()
+			metrics.JobProcessingDuration.Observe(time.Since(start).Seconds())
 			return queue.SendToDLQ(ctx, rdb, job.ID)
 		}
 		// Not dead yet — re-enqueue for retry
+		metrics.JobsProcessedTotal.WithLabelValues("failed").Inc()
+		metrics.JobProcessingDuration.Observe(time.Since(start).Seconds())
 		return queue.Enqueue(ctx, rdb, job.ID)
 	}
 
 	log.Printf("job %s done", job.ID)
+	metrics.JobsProcessedTotal.WithLabelValues("done").Inc()
+	metrics.JobProcessingDuration.Observe(time.Since(start).Seconds())
 	return db.MarkDone(ctx, pool, job.ID)
 }
 

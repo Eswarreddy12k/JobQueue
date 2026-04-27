@@ -52,6 +52,10 @@ spec:
     metadata:
       labels:
         app: autoscaler
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: autoscaler
       containers:
@@ -59,6 +63,8 @@ spec:
           image: mini-job-queue:local
           imagePullPolicy: Never
           command: ["/autoscaler"]
+          ports:
+            - containerPort: 9090
           envFrom:
             - configMapRef:
                 name: app-config

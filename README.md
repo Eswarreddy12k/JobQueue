@@ -143,3 +143,18 @@ for i in $(seq 1 50); do
   curl -s -X POST localhost:30080/jobs -d "{\"task\":\"work-$i\"}"
 done
 kubectl -n jobqueue get deploy worker -w
+
+
+
+
+
+
+phase 4
+
+To deploy and verify:
+
+
+docker build -t mini-job-queue:local .
+kubectl apply -f k8s/
+# Prometheus: http://localhost:30090
+# Grafana:    http://localhost:30030
