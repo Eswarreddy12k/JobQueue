@@ -1,0 +1,99 @@
+name: Build and Deploy to EKS
+
+# Trigger on every push to main
+on:
+  push:
+    branches: [main]
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: mini-job-queue
+  EKS_CLUSTER: mini-job-queue
+
+# OIDC requires id-token write permission
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Test ──────────────────────────────────────────────────────────────
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run tests
+        run: go test ./...
+
+      # ── AWS Auth (OIDC — no static keys) ──────────────────────────────────
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-mini-job-queue
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ── Build & Push to ECR ───────────────────────────────────────────────
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          FULL_IMAGE=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+          docker build -t $FULL_IMAGE .
+          docker tag $FULL_IMAGE $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+          docker push $FULL_IMAGE
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      # ── Deploy to EKS ────────────────────────────────────────────────────
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name $EKS_CLUSTER --region $AWS_REGION
+
+      - name: Deploy to EKS
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          FULL_IMAGE=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+          # Patch manifests for EKS (only in this ephemeral CI environment —
+          # the files in git stay unchanged for local development)
+          sed -i "s|image: mini-job-queue:local|image: $FULL_IMAGE|g" \
+              k8s/api.yaml k8s/worker.yaml k8s/autoscaler.yaml
+          sed -i "s|imagePullPolicy: Never|imagePullPolicy: Always|g" \
+              k8s/api.yaml k8s/worker.yaml k8s/autoscaler.yaml
+
+          # Switch API service from NodePort (local dev) to LoadBalancer (AWS ELB)
+          sed -i "s|type: NodePort|type: LoadBalancer|g" k8s/api.yaml
+          sed -i "/nodePort:/d" k8s/api.yaml
+
+          # Apply all manifests (idempotent — only changed resources update)
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/
+
+          # Wait for all deployments to finish their rolling update
+          kubectl rollout status deployment/api -n jobqueue --timeout=120s
+          kubectl rollout status deployment/worker -n jobqueue --timeout=120s
+          kubectl rollout status deployment/autoscaler -n jobqueue --timeout=120s
+
+      # ── Print the API endpoint ────────────────────────────────────────────
+      - name: Get API endpoint
+        run: |
+          echo "Deployed image: ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
+          echo ""
+          echo "API endpoint:"
+          kubectl get svc api -n jobqueue \
+              -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+          echo ""

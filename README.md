@@ -158,3 +158,19 @@ docker build -t mini-job-queue:local .
 kubectl apply -f k8s/
 # Prometheus: http://localhost:30090
 # Grafana:    http://localhost:30030
+
+
+To deploy for real:
+
+
+# 1. Set your GitHub username and run setup (~15 min for EKS)
+export GITHUB_USER=eswar
+./scripts/setup-aws.sh
+
+# 2. Add AWS_ACCOUNT_ID as a GitHub repo secret
+
+# 3. Push to main — CI/CD handles the rest
+git push origin main
+
+# 4. Teardown when done (~$4.30/day)
+./scripts/teardown-aws.sh

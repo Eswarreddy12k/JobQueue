@@ -1,7 +1,12 @@
 .git
 .claude
+.github
 api
 worker
+autoscaler
+bin/
+scripts/
+Makefile
 *.md
 docker-compose.yml
 k8s/
